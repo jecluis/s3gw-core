@@ -79,6 +79,13 @@ class Context:
 
         return self.config
 
+    def save_config(self) -> None:
+        assert self.config_file.parent.exists()
+        assert self.config is not None
+        with self.config_file.open("w") as fd:
+            d = json.loads(self.config.json())
+            yaml.dump(d, fd)
+
 
 def get_ctx(ctx: click.Context) -> Context:
     return ctx.obj
@@ -172,13 +179,17 @@ def prepare(
     assert ctx.config_file is not None
     ctx.config_file.parent.mkdir(parents=True, exist_ok=True)
 
-    with ctx.config_file.open("w") as fd:
-        d = json.loads(config.json())
-        yaml.dump(d, fd)
+    ctx.config = config
+    ctx.save_config()
     click.echo(f"wrote config to {ctx.config_file}")
 
 
-@cli.command("show-config")
+@cli.group("config")
+def cli_config():
+    pass
+
+
+@cli_config.command("show")
 @click.pass_context
 def show_config(cctx: click.Context):
     ctx = get_ctx(cctx)
@@ -196,6 +207,35 @@ def show_config(cctx: click.Context):
             for repo in ctx.config.additional_repos:
                 click.echo(f"`- name: {repo.name}")
                 click.echo(f"    url: {repo.url}")
+
+
+@cli_config.command("remote-add")
+@click.argument("name", type=str)
+@click.argument("url", type=str)
+@click.pass_context
+def cli_config_remote_add(cctx: click.Context, name: str, url: str):
+    ctx = get_ctx(cctx)
+    if ctx.config is None:
+        click.echo("config not found.")
+        sys.exit(1)
+
+    if ctx.config.additional_repos is None:
+        ctx.config.additional_repos = []
+
+    for entry in ctx.config.additional_repos:
+        if entry.name == name:
+            click.echo(f"additional repository '{name}' already exists.")
+            sys.exit(1)
+        elif entry.url == url:
+            click.echo(
+                f"additional repository '{entry.name}' already has URL '{url}'."
+            )
+            sys.exit(1)
+
+    ctx.config.additional_repos.append(
+        AdditionalRepositoryConfig(name=name, url=url)
+    )
+    ctx.save_config()
 
 
 @cli.group("run", help="Run workflow on a branch/PR.")
